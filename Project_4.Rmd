@@ -1,0 +1,715 @@
+---
+title: "Project 4: Movie Recommendation"
+author: "Mony Chhen-monyrc2 (675335934), Supriya Puri- puri6 (667504900), Sanjib Kumar Panigrahi- skp6 (659526630)"
+date: '7-Dec-2022'
+output:
+  html_document: 
+    theme: readable
+    toc: yes
+  pdf_document: default
+urlcolor: cyan
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Introduction
+
+We are provided with a movies dataset which contains about 1 million anonymous ratings of approximately 3,900 movies made by 6,040 MovieLens users who joined MovieLens in 2000.
+
+The goal of the project is to use the rating data to build a movie recommendation system based on a few different recommendation schemes:
+
+- System I has two schemes based on movie genres:
+
+      - First to recommend top 5 popular movies in each user selected genres.Popularity is measured by the number of ratings a movie receives. A popular movie may not be a highly rated movie.
+
+      - The other scheme recommend 5 random movies in each user selected genres.
+
+System II has two schemes based on collaborative filtering recommendation scheme:
+
+    - Use user-based collaborative filtering technique to estimate missing movie ratings based on other similar users ratings.Once missing movie ratings are estimated, movies with highest ratings is recommended at the top.
+
+    - Use item-based collaborative filtering technique to estimate missing movie ratings based on other movies similar to the onces that rated highly by the user. The most similar one is recommended to the top.
+
+
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(recommenderlab)
+library(DT)
+library(data.table)
+library(reshape2)
+library(recommenderlab)
+library(Matrix)
+library(tidytable)
+library(knitr)
+```
+
+## Download Data
+
+We will use the four files below for our dataset: 
+
+ * `README` [[Github_link](https://liangfgithub.github.io/MovieData/README?raw=true)]
+ * `movies.dat` [[Github_link](https://liangfgithub.github.io/MovieData/movies.dat?raw=true)]
+ * `ratings.dat` [[Github_link](https://liangfgithub.github.io/MovieData/ratings.dat?raw=true)]
+ * `users.dat` [[Github_link](https://liangfgithub.github.io/MovieData/users.dat?raw=true)]
+ 
+ 
+```{r}
+ url = "https://liangfgithub.github.io/MovieData/"
+```
+ 
+
+Check the readme file to understand the format of the other three files. You can also download them from the original site: [https://grouplens.org/datasets/movielens/](https://grouplens.org/datasets/movielens/).
+
+
+
+## Read Dataset:
+
+To speed up the evaluation process, we are using only 10% of the data in this R-markdown file.. We are reading [1:100000] part of the data and evaluating the results in the summary below based on the same. We have used the full dataset and build the recommender system  to be used in the application based on that. The results from the full-model are also shared in the summary.  
+
+
+### ratings data
+```{r}
+ratings = read.csv(paste0(url, 'ratings.dat?raw=true'), 
+                   sep = ':',
+                   colClasses = c('integer', 'NULL'), 
+                   header = FALSE)
+colnames(ratings) = c('UserID', 'MovieID', 'Rating', 'Timestamp')
+
+ratings = ratings[1:100000,]
+```
+
+```{r}
+write.csv(ratings,file="ratings.csv",quote=FALSE,row.names = FALSE)
+```
+
+
+### movies data
+
+
+```{r}
+movies = readLines(paste0(url, 'movies.dat?raw=true'))
+movies = strsplit(movies, split = "::", fixed = TRUE, useBytes = TRUE)
+movies = matrix(unlist(movies), ncol = 3, byrow = TRUE)
+movies = data.frame(movies, stringsAsFactors = FALSE)
+colnames(movies) = c('MovieID', 'Title', 'Genres')
+movies$MovieID = as.integer(movies$MovieID)
+
+# convert accented characters
+
+movies$Title = iconv(movies$Title, "latin1", "UTF-8")
+
+
+# extract year
+movies$Year = as.numeric(unlist(
+  lapply(movies$Title, function(x) substr(x, nchar(x)-4, nchar(x)-1))))
+
+```
+```{r}
+write.csv(movies,file="movies.csv",quote=FALSE)
+```
+
+
+```{r, result='asis', echo=FALSE}
+#datatable(head(movies, 6), 
+#          class = "nowrap hover row-border", 
+#          options = list(dom = 't',
+#                         scrollX = FALSE, 
+#                         autoWidth = TRUE))
+```
+
+### user data
+```{r}
+users = read.csv(paste0(url, 'users.dat?raw=true'),
+                 sep = ':', header = FALSE)
+users = users[, -c(2,4,6,8)] # skip columns
+colnames(users) = c('UserID', 'Gender', 'Age', 'Occupation', 'Zip-code')
+```
+
+For users, Gender is “M” for male and “F” for female, Age is chosen from the range below:
+
+	*  1:  "Under 18"
+	* 18:  "18-24"
+	* 25:  "25-34"
+	* 35:  "35-44"
+	* 45:  "45-49"
+	* 50:  "50-55"
+	* 56:  "56+"
+
+and choice for `Occupation` is as follows:
+
+	*  0:  "other" or not specified
+	*  1:  "academic/educator"
+	*  2:  "artist"
+	*  3:  "clerical/admin"
+	*  4:  "college/grad student"
+	*  5:  "customer service"
+	*  6:  "doctor/health care"
+	*  7:  "executive/managerial"
+	*  8:  "farmer"
+	*  9:  "homemaker"
+	* 10:  "K-12 student"
+	* 11:  "lawyer"
+	* 12:  "programmer"
+	* 13:  "retired"
+	* 14:  "sales/marketing"
+	* 15:  "scientist"
+	* 16:  "self-employed"
+	* 17:  "technician/engineer"
+	* 18:  "tradesman/craftsman"
+	* 19:  "unemployed"
+	* 20:  "writer"
+
+## Exploring the dataset
+
+###### No of unique users
+UserID ranges from 1 to 6040.  
+
+```{r}
+dim(users)
+length(unique(ratings$UserID))
+```
+
+###### Unique Movies? 
+MovieID ranges from 1 to 3952, but not all of them are included in movies. There are movies that have movieId but not included in ratings. 
+
+ 
+```{r}
+dim(movies)
+length(unique(ratings$MovieID))
+movies_not_rated = movies %>% 
+  filter(!(MovieID %in% ratings$MovieID))
+dim(movies_not_rated)
+
+```
+
+##### Dist of Ratings
+
+Most of the ratings are in the 3-5 range. 
+```{r}
+frequency = as.vector(table(ratings$Rating)/nrow(ratings))
+df = data.frame(Rating = 1:5, frequency)
+ggplot(data = df, aes(x = Rating, y = frequency)) +
+  geom_bar(stat="identity", fill = 'blue', width = 0.3) +
+  geom_text(aes(label=round(frequency, dig=2)), vjust=1, color="white")
+```
+
+###### Ratings per User
+
+```{r eval=TRUE}
+tmp_df = ratings %>% 
+  group_by(UserID) %>% 
+  summarize(ratings_per_user = n()) 
+summary(tmp_df$ratings_per_user)
+sum(tmp_df$ratings_per_user < 500)
+sum( tmp_df$ratings_per_user < 1000 & tmp_df$ratings_per_user > 500)
+sum( tmp_df$ratings_per_user > 1000 )
+```
+
+Most users have left less than 500 ratings; about 33 users have given rating between 500 &1000 and 3 have provided ratings above 1000.
+
+```{r}
+tmp_df %>%
+  ggplot(aes(ratings_per_user)) +
+  geom_bar(fill = "blue") 
+```
+
+Combining users and df, you could further explore how ratings_per_user depends on Gender, Age, and Occupation of users.
+
+```{r message=FALSE, warning=FALSE}
+tmp_df = tmp_df %>% full_join(users, by = 'UserID')
+```
+
+### Ratings per Movie
+
+There are 31 movies that have received more than 2000 ratings. The most popular movie is "American Beauty (1999)", followed by the "Star Wars" series. Here, **popular** means receiving max number of ratings not the highest rating for a  movie.  
+
+```{r}
+tmp_df = ratings %>% 
+  group_by(MovieID) %>% 
+  summarize(ratings_per_movie = n(), ave_ratings = mean(Rating)) %>%
+  inner_join(movies, by = 'MovieID')
+summary(tmp_df$ratings_per_movie)
+```
+
+```{r}
+tmp_df %>% 
+  filter(ratings_per_movie > 2000) %>%
+  arrange(desc = ratings_per_movie) %>%
+  select(c("Title", "ratings_per_movie")) %>%
+  print(n = 31)
+
+tmp_df %>% ggplot(aes(ratings_per_movie)) + 
+  geom_bar(fill = "blue", width = 1)
+```
+
+
+### Movie Distribution on the basis of Genre
+Creating a binary indicator for the 18 genres for each movie.
+
+```{r message=FALSE, warning=FALSE}
+genres = as.data.frame(movies$Genres, stringsAsFactors=FALSE)
+tmp_df = as.data.frame(tstrsplit(genres[,1], '[|]',
+                              type.convert=TRUE),
+                    stringsAsFactors=FALSE)
+genre_list = c("Action", "Adventure", "Animation", 
+               "Children's", "Comedy", "Crime",
+               "Documentary", "Drama", "Fantasy",
+               "Film-Noir", "Horror", "Musical", 
+               "Mystery", "Romance", "Sci-Fi", 
+               "Thriller", "War", "Western")
+m = length(genre_list)
+genre_matrix = matrix(0, nrow(movies), length(genre_list))
+for(i in 1:nrow(tmp_df)){
+  genre_matrix[i,genre_list %in% tmp_df[i,]]=1
+}
+colnames(genre_matrix) = genre_list
+remove("tmp", "genres")
+```
+
+Plotting histograms of the 18 genres based on `movies` or based on `ratings`.
+
+```{r}
+frequency = as.vector(colMeans(genre_matrix))
+data.frame(Genres = genre_list, 
+                 frequency) %>% 
+  ggplot(aes(reorder(Genres, frequency), frequency, fill = frequency)) + 
+  geom_bar(stat = "identity") + 
+    geom_text(aes(label = round(frequency, dig=2)), 
+            position = position_stack(vjust = 0.3), 
+            color="white", size=3) + 
+  labs(y = 'Frequency', x = 'Genre')
+```
+
+```{r}
+tmp_df = ratings %>% 
+  left_join(data.frame(MovieID = movies$MovieID, genre_matrix), 
+            by = "MovieID") %>%
+  select(-c("UserID", "MovieID", "Rating", "Timestamp"))
+
+data.frame(Genres = genre_list, 
+                 Popularity = as.vector(colMeans(tmp_df))) %>% 
+  ggplot(aes(reorder(Genres, Popularity), Popularity, fill = Popularity)) + 
+  geom_bar(stat = "identity") + 
+  geom_text(aes(label = round(Popularity, dig=2)), 
+            position = position_stack(vjust = 0.3), 
+            color="white", size=3) + 
+  labs(y = 'Popularity', x = 'Genre')
+```
+
+
+The max number of movies belong to the comedy genre. About 50% of the movies belong to only one genre; about 1/3 are categorized into two genres; a few are categorized into more than four genres. The movie “The Transformers” (1986) are categorized into six genres: Action, Animation, Children’s, Sci-Fi, Thriller, and War.
+
+
+
+
+
+ 
+
+#### Model creation for the Recommender System: 
+
+##### Split the data into train and test
+
+Splitting the 'rating.dat' data into 80% train and 20% test
+
+
+```{r}
+set.seed(5234)
+train.id = sample(nrow(ratings), floor(nrow(ratings)) * 0.8)
+train = ratings[train.id, ]
+head(train)
+
+test = ratings[-train.id, ]
+head(test)
+```
+
+###### Create a Utility matrix stroed as a Sparse matrix
+
+```{r}
+user_id = paste0('u', train$UserID)
+movies_id = paste0('m', train$MovieID)
+rating = train$Rating
+tmp_df = data.frame(user_id, movies_id, rating, stringsAsFactors = T)
+Rmat = sparseMatrix(as.integer(tmp_df$user_id), as.integer(tmp_df$movies_id), x = tmp_df$rating)
+rownames(Rmat) = levels(tmp_df$user_id)
+colnames(Rmat) = levels(tmp_df$movies_id)
+Rmat = new('realRatingMatrix', data = Rmat)
+```
+
+
+Rmat is a 6040-by-3681 sparse matrix. The rows correspond to the unique 6040 users in the training data, and columns correspond to the unique 3681 movies in the training data.
+
+
+
+
+```{r}
+
+dim(Rmat)
+```
+
+
+
+
+##### System I 
+
+- **Genre based (Average Popular Rating)**
+
+
+    - Train a genre based recommender system by popularity using R package [recommenderlab]. 
+    **Popularity** is definedby the greater number of reviews rather then highly rated reviews.
+
+```{r}
+popular_recom = Recommender(Rmat, method = 'POPULAR',
+                          parameter = list(normalize = 'center'))
+
+#Summary of model parameters
+popular_recom@model
+```
+
+Get the predicted ratings from the model first. We average the predicted ratings for every single movies while ignoring any NA return from the model. We use this average popular ratings to assign to recommend to every single users.
+
+
+
+```{r}
+
+popular_recom = predict(popular_recom, 
+                Rmat, type = 'ratingMatrix')
+recom_mat = as(Rmat, "matrix")
+avg_popular_recom = colMeans(recom_mat,na.rm=TRUE)
+
+
+```
+
+Display the predicted average popular ratings for every users, and original rating of the first 10 movies for the three users.
+
+
+```{r}
+
+avg_popular_recom[1:10]
+as(Rmat, 'matrix')[1:3, 1:10]
+```
+
+
+
+- RMSE evaluation
+
+Replace any NA predicted rating with weighted average of original user rating distribution of 3.61.
+
+
+```{r, eval=TRUE}
+
+popular_test.pred = test
+popular_test.pred$rating = NA
+
+
+```
+
+```{r}
+
+# For all lines in test file, one by one
+for (i in 1:nrow(test)){
+
+    # Read userid and movieid from columns 2 and 3 of test data
+    movieid = paste("m",as.character(test$MovieID[i]), sep ="" )
+
+    # handle missing values; replace with weighted average of original user rating distribution of 3.61
+    popular_test.pred$rating[i] = ifelse(movieid %in% names(avg_popular_recom), avg_popular_recom[[movieid]], 3.61) 
+}
+
+# Calculate RMSE
+popular_rmse = sqrt(mean((test$Rating - popular_test.pred$rating)^2)) 
+popular_rmse
+```
+
+
+**- Genre based (Hybrid)**
+
+
+  - Train a genre based recommender system with hybrid model using R package [recommenderlab]. 
+  The model mixed with **Popular movie** (most reviewed), **Randome** for serendipity and **Rerecommend** for the user his/her own rating with weighting of 0.6, 0.2 and 0.2 respectively.
+
+```{r}
+# mix popular movies with a random recommendations for diversity and rerecommend some movies the user liked.
+rec_hybrid = HybridRecommender(
+  Recommender(Rmat, method = "POPULAR"),
+  Recommender(Rmat, method = "RANDOM"),
+  Recommender(Rmat, method = "RERECOMMEND"),
+  weights = c(.6, .2, .2)
+)
+
+
+#Summary of model parameters
+rec_hybrid@model
+```
+
+- Make prediction on the test data
+
+    First let's predict all un-rated movies for the first three users in the training data.
+
+```{r}
+# predict ratings for the first three users
+hybrid_recom = predict(rec_hybrid, 
+                Rmat[1:3], type = 'ratings')
+```
+
+We display the original and predicted ratings of the first 10 movies for the three users. 
+
+```{r}
+as(hybrid_recom, 'matrix')[, 1:10]
+as(Rmat, 'matrix')[1:3, 1:10]
+```
+
+
+- RMSE evaluation
+
+Replace any NA predicted rating with weighted average of original user rating distribution of 3.61.
+
+
+```{r, eval=TRUE}
+
+hybrid_recom = predict(rec_hybrid, 
+                Rmat, type = 'ratings')  
+hybrid_rec_list = as(hybrid_recom, 'list')  # each element are ratings of that user
+
+hybrid_test.pred = test
+hybrid_test.pred$rating = NA
+
+```
+
+```{r}
+
+# For all lines in test file, one by one
+for (i in 1:nrow(test)){
+
+    # Read userid and movieid from columns 2 and 3 of test data
+    userid = as.integer(test$UserID[i])
+    movieid = as.integer(test$MovieID[i])
+    
+    rating = hybrid_rec_list[[userid]][movieid]
+    # handle missing values; replace with weighted average of original user rating distribution of 3.61
+    hybrid_test.pred$rating[i] = ifelse(is.na(rating), 3.61, rating)
+}
+
+# Calculate RMSE
+hybrid_rmse = sqrt(mean((test$Rating - hybrid_test.pred$rating)^2)) 
+hybrid_rmse
+```
+
+##### System II  
+    - User-Based Collaborative Filtering
+
+
+  Train a user-based collaborative filtering (UBCF) recommender system using the following parameters:
+
+      - Z-score normalization to the ratings matrix
+  
+      - pick 5 nearest neighbor
+  
+      - similarity measure is cosine similarity
+      
+```{r}
+rec_UBCF = Recommender(Rmat, method = 'UBCF',
+                  parameter = list(normalize = 'Z-score', 
+                                   method = 'Cosine', 
+                                   nn = 25))
+#Summary of model parameters
+rec_UBCF@model
+```
+
+- Make prediction on the test data
+
+    First let's predict all un-rated movies for the first three users in the training data. 
+
+```{r}
+# predict ratings for the first three users
+UBCF_recom = predict(rec_UBCF, 
+                Rmat[1:3], type = 'ratings')
+```
+
+Display the original and predicted ratings of the first 10 movies for the three users.
+
+```{r}
+as(UBCF_recom, 'matrix')[, 1:10]
+as(Rmat, 'matrix')[1:3, 1:10]
+```
+
+- RMSE evaluation
+
+Replace any NA predicted rating with weighted average of original user rating distribution of 3.61.
+
+```{r, eval=TRUE}
+
+UBCF_recom = predict(rec_UBCF, 
+                Rmat, type = 'ratings')  
+UBCF_rec_list = as(UBCF_recom, 'list')  # each element are ratings of that user
+
+UBCF_test.pred = test
+UBCF_test.pred$rating = NA
+
+```
+
+```{r}
+
+# For all lines in test file, one by one
+for (i in 1:nrow(test)){
+
+    # Read userid and movieid from columns 2 and 3 of test data
+    userid = as.integer(test$UserID[i])
+    movieid = as.integer(test$MovieID[i])
+    
+    rating = UBCF_rec_list[[userid]][movieid]
+    # handle missing values; replace with weighted average of original user rating distribution of 3.61
+    UBCF_test.pred$rating[i] = ifelse(is.na(rating), 3.61, rating)
+}
+
+# Calculate RMSE
+UBCF_rmse = sqrt(mean((test$Rating - UBCF_test.pred$rating)^2)) 
+UBCF_rmse
+```
+
+
+
+- Item-based Collaborative Filtering
+
+    Train Item-based collaborative filtering (IBCF) recommender system using the following parameters:
+
+        - Z-score normalization to the ratings matrix
+  
+        - similarity measure is cosine similarity
+  
+        - similarity matrix is not normalized
+
+```{r message=FALSE, warning=FALSE}
+rec_IBCF = Recommender(Rmat, method = 'IBCF',
+                  parameter = list(normalize = 'Z-score', 
+                                   method = 'Cosine'))
+
+
+#Summary of model parameters
+rec_IBCF@model$method
+rec_IBCF@model$normalize
+rec_IBCF@model$normalize_sim_matrix
+
+```
+
+```{r}
+model_details = getModel(rec_IBCF)
+model_details$description
+n_items_top = 20
+#image(model_details$sim[1:n_items_top, 1:n_items_top], main = "Heatmap of the first rows and columns")
+
+```
+
+
+- Make prediction on the test data
+
+      First we predict the top 5 recommended movie for the first user.
+
+```{r}
+recc_predicted = predict(object = rec_IBCF, newdata = Rmat[1:100], n = 5)
+recc_predicted
+class(recc_predicted)
+slotNames(recc_predicted)
+recc_predicted@items[[1]]
+```
+
+The below are the top 5 predicted titles:
+
+
+
+```{r}
+recc_user_1 = recc_predicted@items[[1]]
+movies_user_1 = recc_predicted@itemLabels[recc_user_1]
+movies[movies$MovieID %in% recc_user_1,]$Title
+```
+
+```{r message=FALSE, warning=FALSE}
+recc_matrix = sapply(recc_predicted@items, function(x){
+  movies[movies$MovieID == x,]
+
+  
+})
+dim(recc_matrix)
+recc_matrix[, 1:4]
+```
+
+- RMSE evaluation
+
+Replace any NA predicted rating with weighted average of original user rating distribution of 3.61.
+
+
+```{r, eval=TRUE}
+
+IBCF_recom = predict(rec_IBCF, 
+                Rmat, type = 'ratings')  
+IBCF_rec_list = as(IBCF_recom, 'list')  # each element are ratings of that user
+
+IBCF_test.pred = test
+IBCF_test.pred$rating = NA
+
+
+```
+
+```{r}
+
+# For all lines in test file, one by one
+for (i in 1:nrow(test)){
+
+    # Read userid and movieid from columns 2 and 3 of test data
+    userid = as.integer(test$UserID[i])
+    movieid = as.integer(test$MovieID[i])
+    
+    rating = IBCF_rec_list[[userid]][movieid]
+    # handle missing values; replace with weighted average of original user rating distribution of 3.61
+    IBCF_test.pred$rating[i] = ifelse(is.na(rating), 3.61, rating)
+}
+
+# Calculate RMSE
+IBCF_rmse = sqrt(mean((test$Rating - IBCF_test.pred$rating)^2))
+IBCF_rmse
+```
+
+### Summary
+
+##### For the 10% of the dataset (100000 ratings):
+
+RMSE Comparison of different System and scheme for movies:
+
+```{r echo=FALSE}
+results = data.frame("Avg Popular" = popular_rmse, "Hybrid" = hybrid_rmse, "UBCF"= UBCF_rmse, " IBCF"= IBCF_rmse)
+
+kable(results)
+```
+
+##### For the full dataset (1 million ratings): 
+Full_model_run.R evaluates each model on full dataset for 10 times using R library  (`doparallel`) to speed up the process. 
+
+
+Results for the 10 iterations of RMSE for the full dataset:
+
+```{r echo=FALSE}
+
+full_avg_popular = c(0.9777898, 0.9786383, 0.9817414, 0.9791549, 0.9799435, 0.979764, 0.9804747, 0.977305, 0.9815513, 0.9766996)
+full_hybrid = c(1.282696, 1.281837, 1.279632, 1.284619, 1.282067, 1.287806, 1.282609, 1.28142, 1.281839, 1.283252)
+full_ubcf = c(1.194054, 1.198203, 1.195565, 1.199106, 1.199787, 1.198254, 1.198958, 1.197127, 1.202666, 1.199742)
+full_ibcf = c(1.192984, 1.199445, 1.195434, 1.198175, 1.199285, 1.196161, 1.193747, 1.198663, 1.197704, 1.198781)
+
+
+Full_results = data.frame(Iterations=seq(1,10), SystemI_Avg_Popular=full_avg_popular, SystemI_Hybrid=full_hybrid, SystemII_UBCF=full_ubcf, SystemII_IBCF=full_ibcf)
+
+kable(Full_results)
+
+```
+
+Average RMSE of the 10 iterations on the complete dataset:
+
+```{r echo=FALSE}
+
+kable(data.frame(SystemI_Avg_Popular=mean(full_avg_popular), SystemI_Hybrid=mean(full_hybrid), SystemII_UBCF=mean(full_ubcf), SystemII_IBCF=mean(full_ibcf)))
+```
+
+From the RMSE evaluations for both reduced and full dataset, System I Average Popular model stands out.
+
