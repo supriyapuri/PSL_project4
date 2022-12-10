@@ -8,7 +8,7 @@ install_if_missing = function(p) {
 
 
 
-devtools::install_github("stefanwilhelm/ShinyRatingInput")
+
 
 
 
