@@ -3,10 +3,10 @@ title: "Project 4: Movie Recommendation"
 author: "Mony Chhen-monyrc2 (675335934), Supriya Puri- puri6 (667504900), Sanjib Kumar Panigrahi- skp6 (659526630)"
 date: '7-Dec-2022'
 output:
+  pdf_document: default
   html_document: 
     theme: readable
     toc: yes
-  pdf_document: default
 urlcolor: cyan
 ---
 
@@ -35,6 +35,9 @@ System II has two schemes based on collaborative filtering recommendation scheme
 
 
 ```{r message=FALSE, warning=FALSE}
+#install.packages("vctrs")
+#tinytex::install_tinytex()
+
 library(dplyr)
 library(ggplot2)
 library(recommenderlab)
@@ -45,6 +48,8 @@ library(recommenderlab)
 library(Matrix)
 library(tidytable)
 library(knitr)
+
+
 ```
 
 ## Download Data
@@ -68,9 +73,6 @@ Check the readme file to understand the format of the other three files. You can
 
 ## Read Dataset:
 
-To speed up the evaluation process, we are using only 10% of the data in this R-markdown file.. We are reading [1:100000] part of the data and evaluating the results in the summary below based on the same. We have used the full dataset and build the recommender system  to be used in the application based on that. The results from the full-model are also shared in the summary.  
-
-
 ### ratings data
 ```{r}
 ratings = read.csv(paste0(url, 'ratings.dat?raw=true'), 
@@ -79,7 +81,6 @@ ratings = read.csv(paste0(url, 'ratings.dat?raw=true'),
                    header = FALSE)
 colnames(ratings) = c('UserID', 'MovieID', 'Rating', 'Timestamp')
 
-ratings = ratings[1:100000,]
 ```
 
 ```{r}
@@ -674,7 +675,7 @@ IBCF_rmse
 
 ### Summary
 
-##### For the 10% of the dataset (100000 ratings):
+##### For the full datset run once:
 
 RMSE Comparison of different System and scheme for movies:
 
@@ -684,32 +685,6 @@ results = data.frame("Avg Popular" = popular_rmse, "Hybrid" = hybrid_rmse, "UBCF
 kable(results)
 ```
 
-##### For the full dataset (1 million ratings): 
-Full_model_run.R evaluates each model on full dataset for 10 times using R library  (`doparallel`) to speed up the process. 
 
-
-Results for the 10 iterations of RMSE for the full dataset:
-
-```{r echo=FALSE}
-
-full_avg_popular = c(0.9777898, 0.9786383, 0.9817414, 0.9791549, 0.9799435, 0.979764, 0.9804747, 0.977305, 0.9815513, 0.9766996)
-full_hybrid = c(1.282696, 1.281837, 1.279632, 1.284619, 1.282067, 1.287806, 1.282609, 1.28142, 1.281839, 1.283252)
-full_ubcf = c(1.194054, 1.198203, 1.195565, 1.199106, 1.199787, 1.198254, 1.198958, 1.197127, 1.202666, 1.199742)
-full_ibcf = c(1.192984, 1.199445, 1.195434, 1.198175, 1.199285, 1.196161, 1.193747, 1.198663, 1.197704, 1.198781)
-
-
-Full_results = data.frame(Iterations=seq(1,10), SystemI_Avg_Popular=full_avg_popular, SystemI_Hybrid=full_hybrid, SystemII_UBCF=full_ubcf, SystemII_IBCF=full_ibcf)
-
-kable(Full_results)
-
-```
-
-Average RMSE of the 10 iterations on the complete dataset:
-
-```{r echo=FALSE}
-
-kable(data.frame(SystemI_Avg_Popular=mean(full_avg_popular), SystemI_Hybrid=mean(full_hybrid), SystemII_UBCF=mean(full_ubcf), SystemII_IBCF=mean(full_ibcf)))
-```
-
-From the RMSE evaluations for both reduced and full dataset, System I Average Popular model stands out.
+From the RMSE evaluations for the dataset above, System I Average Popular model stands out.
 
