@@ -1,4 +1,4 @@
-my_packages = c("dplyr","rmarkdown","httpuv","shiny","shinythemes","shinycssloaders","shinyjs","shinyratinginput","dplyr","ggplot2","DT","data.table","reshape2","recommenderlab","Matrix","tidytable","knitr","data.table","tidytable" )
+my_packages = c("pkgdown", "ragg","devtools", "DT","Matrix","shiny","tidytable","proxy","recommenderlab","reshape2","shinyjs","data.table","dplyr","shinyWidgets","tidyverse","reticulate","DT","data.table")
 
 install_if_missing = function(p) {
   if (p %in% rownames(installed.packages()) == FALSE) {
@@ -9,9 +9,7 @@ install_if_missing = function(p) {
 invisible(sapply(my_packages, install_if_missing))
 
 
-#devtools::install_github("stefanwilhelm/ShinyRatingInput")
+devtools::install_github("stefanwilhelm/ShinyRatingInput")
 
-#install.packages(c("dplyr","ggplot2","DT","data.table","reshape2","recommenderlab","Matrix","tidytable","knitr","data.table","tidytable"))
 
-#install.packages(c())
 
